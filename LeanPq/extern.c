@@ -473,6 +473,9 @@ LEAN_EXPORT lean_obj_res lean_pq_res_status(b_lean_obj_arg res) {
 LEAN_EXPORT lean_obj_res lean_pq_result_error_message(b_lean_obj_arg res) {
   Result *result = pq_result_get_handle(res);
   const char * error_message = PQresultErrorMessage(result->pg_result);
+  if (error_message == NULL)
+    return lean_io_result_mk_error(
+        pq_other_error("PQresultErrorMessage returned NULL"));
   return lean_io_result_mk_ok(lean_mk_string(error_message));
 }
 
@@ -482,7 +485,10 @@ LEAN_EXPORT lean_obj_res lean_pq_result_error_field(b_lean_obj_arg res, b_lean_o
   Result *result = pq_result_get_handle(res);
   int fieldcode_int = lean_unbox(fieldcode);
   const char * error_field = PQresultErrorField(result->pg_result, fieldcode_int);
-  return lean_io_result_mk_ok(lean_mk_string(error_field));
+  /* libpq returns NULL when this diagnostic field is absent.  Lean's string constructor requires a
+   * valid C string; mapping the absent field to the empty string lets checkedResult report
+   * SQLSTATE=unavailable while still rejecting the unsuccessful PGresult. */
+  return lean_io_result_mk_ok(lean_mk_string(error_field == NULL ? "" : error_field));
 }
 
 // Retrieving Query Result Information

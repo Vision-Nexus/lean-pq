@@ -57,6 +57,38 @@ structure PqM (perm : Permission) (α : Type) where
 
 namespace PqM
 
+/-- Successful `PGresult` shape required by a public execution API. -/
+inductive ResultExpectation where
+  | tuples
+  | command
+  | commandOrTuples
+  deriving BEq, DecidableEq, Repr
+
+instance : ToString ResultExpectation where
+  toString
+    | .tuples => "TUPLES_OK"
+    | .command => "COMMAND_OK"
+    | .commandOrTuples => "COMMAND_OK|TUPLES_OK"
+
+private def ResultExpectation.accepts : ResultExpectation → Extern.ExecStatus → Bool
+  | .tuples, .tuplesOk => true
+  | .command, .commandOk => true
+  | .commandOrTuples, .commandOk | .commandOrTuples, .tuplesOk => true
+  | _, _ => false
+
+/-- Reject an unsuccessful server result immediately. `PG_DIAG_SQLSTATE` is libpq field code `C`
+(ASCII 67). Zero affected rows remain successful; cardinality belongs to the caller's CAS contract. -/
+def checkedResult (operation : String) (expected : ResultExpectation)
+    (result : Extern.PGresult) : EIO LeanPq.Error Extern.PGresult := do
+  let actual ← Extern.PqResultStatus result
+  if expected.accepts actual then pure result
+  else
+    let sqlStateRaw ← Extern.PqResultErrorField result 67
+    let sqlState := if sqlStateRaw.isEmpty then "unavailable" else sqlStateRaw
+    let detail ← Extern.PqResultErrorMessage result
+    throw (.postgresError operation (toString expected) (toString actual) sqlState
+      detail.trimAscii.toString)
+
 @[inline] def pure' (a : α) : PqM perm α :=
   ⟨fun _ => Pure.pure a⟩
 
@@ -101,38 +133,52 @@ def getConn : PqM perm Handle :=
 
 /-- Execute a read-only SQL query (SELECT). -/
 def execSelect (sql : String) : PqM .readOnly Extern.PGresult :=
-  ⟨fun conn => Extern.PqExec conn sql⟩
+  ⟨fun conn => do checkedResult "execSelect" .tuples (← Extern.PqExec conn sql)⟩
 
 /-- Execute a data-modifying SQL query (INSERT, UPDATE, DELETE). -/
 def execModify (sql : String) : PqM .dataAltering Extern.PGresult :=
-  ⟨fun conn => Extern.PqExec conn sql⟩
+  ⟨fun conn => do checkedResult "execModify" .commandOrTuples (← Extern.PqExec conn sql)⟩
 
 /-- Execute an administrative SQL query (CREATE, DROP, ALTER, etc.). -/
 def execAdmin (sql : String) : PqM .admin Extern.PGresult :=
-  ⟨fun conn => Extern.PqExec conn sql⟩
+  ⟨fun conn => do checkedResult "execAdmin" .commandOrTuples (← Extern.PqExec conn sql)⟩
 
 /-- Execute a parameterized query (read-only). -/
 def execParamsSelect (sql : String) (paramTypes : Array Oid) (paramValues : Array String)
     : PqM .readOnly Extern.PGresult :=
-  ⟨fun conn => Extern.PqExecParams conn sql (Int.ofNat paramValues.size)
-    paramTypes paramValues (paramValues.map (fun _ => 0)) (paramValues.map (fun _ => 0)) 0⟩
+  ⟨fun conn => do
+    checkedResult "execParamsSelect" .tuples <| ← Extern.PqExecParams conn sql
+      (Int.ofNat paramValues.size) paramTypes paramValues (paramValues.map (fun _ => 0))
+      (paramValues.map (fun _ => 0)) 0⟩
 
 /-- Execute a parameterized query (data-modifying). -/
 def execParamsModify (sql : String) (paramTypes : Array Oid) (paramValues : Array String)
     : PqM .dataAltering Extern.PGresult :=
-  ⟨fun conn => Extern.PqExecParams conn sql (Int.ofNat paramValues.size)
-    paramTypes paramValues (paramValues.map (fun _ => 0)) (paramValues.map (fun _ => 0)) 0⟩
+  ⟨fun conn => do
+    checkedResult "execParamsModify" .commandOrTuples <| ← Extern.PqExecParams conn sql
+      (Int.ofNat paramValues.size) paramTypes paramValues (paramValues.map (fun _ => 0))
+      (paramValues.map (fun _ => 0)) 0⟩
+
+private def rollbackAndThrow (conn : Handle) (cause : LeanPq.Error) : EIO LeanPq.Error α := do
+  try
+    let _ ← checkedResult "ROLLBACK" .command (← Extern.PqExec conn "ROLLBACK")
+    pure ()
+  catch rollbackError =>
+    throw (.otherError s!"transaction failed ({toString cause}); ROLLBACK also failed \
+      ({toString rollbackError})")
+  throw cause
 
 /-- Run a computation inside a transaction. -/
 def withTransaction (body : PqM perm α) : PqM perm α := ⟨fun conn => do
-  let _ ← Extern.PqExec conn "BEGIN"
   try
-    let result ← body.run conn
-    let _ ← Extern.PqExec conn "COMMIT"
-    Pure.pure result
-  catch e =>
-    let _ ← Extern.PqExec conn "ROLLBACK"
-    throw e⟩
+    let _ ← checkedResult "BEGIN" .command (← Extern.PqExec conn "BEGIN")
+    pure ()
+  catch e => rollbackAndThrow conn e
+  let value ← try body.run conn catch e => rollbackAndThrow conn e
+  try
+    let _ ← checkedResult "COMMIT" .command (← Extern.PqExec conn "COMMIT")
+    pure value
+  catch e => rollbackAndThrow conn e⟩
 
 /-- Fetch all results from a PGresult as a list of rows (each row is a list of strings). -/
 def fetchAll (result : Extern.PGresult) : PqM perm (List (List String)) := ⟨fun _ => do

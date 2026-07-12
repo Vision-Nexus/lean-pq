@@ -290,19 +290,24 @@ end Query
 
 namespace PqM
 
+private def queryExpectation : Query → ResultExpectation
+  | .select .. => .tuples
+  | .insert .. | .update .. | .delete .. | .createTable .. | .dropTable .. => .command
+
 /-- Execute a type-safe query. The permission proof is auto-discharged by `by decide`
     for valid combinations and fails at compile time for invalid ones. -/
 def execQuery (q : Query) (_h : q.permissionLevel.le perm = true := by decide)
     : PqM perm Extern.PGresult := do
   let (sql, params) := q.render
   let conn ← PqM.getConn
-  if params.isEmpty then
+  let result ← if params.isEmpty then
     Extern.PqExec conn sql
-  else
+  else do
     let paramTypes : Array Oid := params.map (fun _ => (0 : UInt32))
     let paramLengths : Array Int := params.map (fun _ => 0)
     let paramFormats : Array Int := params.map (fun _ => 0)
     Extern.PqExecParams conn sql (Int.ofNat params.size) paramTypes params paramLengths paramFormats 0
+  checkedResult "execQuery" (queryExpectation q) result
 
 /-- Execute a type-safe query and fetch all rows.
     Combines `execQuery` with `fetchAll` for convenience. -/

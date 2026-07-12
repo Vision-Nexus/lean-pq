@@ -12,7 +12,11 @@ https://gist.github.com/ydewit/7ab62be1bd0fea5bd53b48d23914dd6b#4-scalar-values-
 */
 
 
-#define DEBUG 1
+/* Production builds must not emit raw connection/result addresses for every SQL operation.
+ * A developer may opt in explicitly with -DLEAN_PQ_DEBUG=1. */
+#ifndef LEAN_PQ_DEBUG
+#define LEAN_PQ_DEBUG 0
+#endif
 
 #define LEAN_PQ_CONNECTION_FAILED_INIT 100
 
@@ -29,7 +33,7 @@ static lean_external_class *pq_connection_external_class = NULL;
 
 static void pq_connection_finalizer(void *h) {
   Connection *connection = (Connection *)h;
-#if DEBUG
+#if LEAN_PQ_DEBUG
   fprintf(stderr, "pq_connection_finalizer %p\n", connection->pg_conn);
 #endif
   // Closes the connection to the server. Also frees memory used by the PGconn
@@ -98,7 +102,7 @@ LEAN_EXPORT lean_obj_res lean_pq_connect_db_params(b_lean_obj_arg keywords, b_le
     return lean_io_result_mk_error(pq_other_error("Memory allocation for connection failed"));
   // Initialize all fields to safe defaults
   connection->pg_conn = pg_conn;
-#if DEBUG
+#if LEAN_PQ_DEBUG
   fprintf(stderr, "Connection %p\n", pg_conn);
 #endif
   return lean_io_result_mk_ok(pq_connection_wrap_handle(connection));
@@ -120,7 +124,7 @@ LEAN_EXPORT lean_obj_res lean_pq_connect_db(b_lean_obj_arg conninfo) {
     return lean_io_result_mk_error(pq_other_error("Memory allocation for connection failed"));
   // Initialize all fields to safe defaults
   connection->pg_conn = pg_conn;
-#if DEBUG
+#if LEAN_PQ_DEBUG
   fprintf(stderr, "Connection %p\n", pg_conn);
 #endif
   return lean_io_result_mk_ok(pq_connection_wrap_handle(connection));
@@ -231,7 +235,7 @@ static lean_external_class *pq_result_external_class = NULL;
 
 static void pq_result_finalizer(void *h) {
   Result *result = (Result *)h;
-#if DEBUG
+#if LEAN_PQ_DEBUG
   fprintf(stderr, "pq_result_finalizer %p\n", result->pg_result);
 #endif
   PQclear(result->pg_result);
@@ -263,7 +267,7 @@ static lean_obj_res wrap_pg_result(PGresult *pg_result) {
   if (!result)
     return lean_io_result_mk_error(pq_other_error("Memory allocation for result failed"));
   result->pg_result = pg_result;
-#if DEBUG
+#if LEAN_PQ_DEBUG
   fprintf(stderr, "Result %p\n", pg_result);
 #endif
   return lean_io_result_mk_ok(pq_result_wrap_handle(result));

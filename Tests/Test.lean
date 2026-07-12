@@ -253,6 +253,76 @@ def testPqMTransaction : IO Unit :=
 
     let _ ← PqM.execAdmin "DROP TABLE test_tx;"
 
+/-! ## 10b. Fail-fast PGresult semantics -/
+
+private def expectSqlState (label expected : String) (action : PqM .admin α) : PqM .admin Unit := do
+  let observed ← try
+    let _ ← action
+    pure none
+  catch error => pure (some error)
+  match observed with
+  | some (.postgresError _ _ _ sqlState _) =>
+    if sqlState == expected then pure ()
+    else throw (.otherError s!"{label}: expected SQLSTATE {expected}, got {sqlState}")
+  | some error => throw (.otherError s!"{label}: expected postgresError, got {repr error}")
+  | none => throw (.otherError s!"{label}: rejected PostgreSQL operation returned success")
+
+def testPqMFailFast : IO Unit :=
+  PqM.withConnectionIO (perm := .admin) conninfo do
+    let _ ← PqM.execAdmin "DROP TABLE IF EXISTS test_failfast_child"
+    let _ ← PqM.execAdmin "DROP TABLE IF EXISTS test_failfast_parent"
+    let _ ← PqM.execAdmin "CREATE TABLE test_failfast_parent(id bigint PRIMARY KEY)"
+    let _ ← PqM.execAdmin "CREATE TABLE test_failfast_child(
+      id bigint PRIMARY KEY,
+      required_text text NOT NULL,
+      parent_id bigint REFERENCES test_failfast_parent(id) DEFERRABLE INITIALLY DEFERRED)"
+
+    expectSqlState "execSelect" "22012" do
+      let _ ← PqM.execSelect "SELECT 1/0"
+      pure ()
+    expectSqlState "execModify" "42P01" do
+      let _ ← PqM.execModify "INSERT INTO table_that_does_not_exist VALUES (1)"
+      pure ()
+    expectSqlState "execAdmin" "42601" do
+      let _ ← PqM.execAdmin "THIS IS NOT SQL"
+      pure ()
+    expectSqlState "execParamsSelect" "22012" do
+      let _ ← PqM.execParamsSelect "SELECT 1/$1::int" #[0] #["0"]
+      pure ()
+    expectSqlState "execParamsModify" "23502" do
+      let _ ← PqM.execParamsModify
+        "INSERT INTO test_failfast_child(id,required_text) VALUES ($1,NULL)" #[0] #["1"]
+      pure ()
+
+    let schema : TableSchema :=
+      { name := "test_failfast_child"
+        columns :=
+          [ { name := "id", type := .bigint, nullable := false }
+          , { name := "required_text", type := .text, nullable := false }
+          , { name := "parent_id", type := .bigint, nullable := true } ] }
+    expectSqlState "execQuery" "23502" do
+      let _ ← PqM.execQuery
+        (Query.insert schema ["id", "required_text"] [.litInt 2, .litNull])
+      pure ()
+
+    -- Zero affected rows is successful. Higher layers decide whether that is a stale CAS.
+    let zero ← PqM.execModify
+      "UPDATE test_failfast_child SET required_text='never' WHERE id=-1"
+    let affected ← liftM (PqCmdTuples zero)
+    if affected != "0" then
+      throw (.otherError s!"zero-row command reported {affected} affected rows")
+
+    expectSqlState "deferred COMMIT" "23503" <| PqM.withTransaction do
+      let _ ← PqM.execModify
+        "INSERT INTO test_failfast_child(id,required_text,parent_id) VALUES (3,'x',999)"
+      pure ()
+    let rows ← PqM.query (Query.select schema .all)
+    if !rows.isEmpty then
+      throw (.otherError s!"failed deferred COMMIT left rows behind: {rows}")
+
+    let _ ← PqM.execAdmin "DROP TABLE test_failfast_child"
+    let _ ← PqM.execAdmin "DROP TABLE test_failfast_parent"
+
 /-! ## 11. Type-safe Query API with real DB -/
 
 def testQueryAPI : IO Unit :=
@@ -506,6 +576,7 @@ def main : IO UInt32 := do
     runEIOTest "Seeded data"       testSeededData,
     runTest    "PqM basic"         testPqMBasic,
     runTest    "PqM transactions"  testPqMTransaction,
+    runTest    "PqM fail-fast"     testPqMFailFast,
     runTest    "Query API"         testQueryAPI,
     runEIOTest "Data types"        testDataTypes,
     runTest    "Concurrent queries" testConcurrentQueries,

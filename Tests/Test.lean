@@ -12,6 +12,8 @@ import Tests.Async
 open LeanPq
 open Extern
 
+@[extern "lean_pq_test_result_refcount"]
+private opaque pqResultRefcount (result : @& PGresult) : EIO LeanPq.Error Nat
 def conninfo := "host=localhost port=5432 user=postgres password=test dbname=postgres"
 
 /-! ## Helper: assert with descriptive failure -/
@@ -93,6 +95,42 @@ def testExec : EIO LeanPq.Error Unit := do
 
   -- Cleanup
   let _ ← PqExec conn "DROP TABLE test_exec;"
+
+/-! ## 3b. PGresult accessor ownership -/
+
+def testResultAccessorBorrowing : EIO LeanPq.Error Unit := do
+  let conn ← PqConnectDb conninfo
+  for _ in [:64] do
+    let result ← PqExec conn "SELECT repeat('x', 65536) AS payload;"
+    let status ← PqResultStatus result
+    assertEq "result status" status .tuplesOk
+    let _ ← PqResStatus result
+    let _ ← PqResultErrorMessage result
+    let _ ← PqResultErrorField result 67
+    let rows ← PqNtuples result
+    assertEq "result rows" rows 1
+    let fields ← PqNfields result
+    assertEq "result fields" fields 1
+    let _ ← PqFname result 0
+    let _ ← PqFnumber result "payload"
+    let _ ← PqFtable result 0
+    let _ ← PqFtablecol result 0
+    let _ ← PqFformat result 0
+    let _ ← PqFtype result 0
+    let _ ← PqFsize result 0
+    let _ ← PqFmod result 0
+    let _ ← PqBinaryTuples result
+    let _ ← PqCmdStatus result
+    let _ ← PqCmdTuples result
+    let _ ← PqOidValue result
+    let _ ← PqOidStatus result
+    let payload ← PqGetvalue result 0 0
+    assertEq "result payload size" payload.length 65536
+    let _ ← PqGetisnull result 0 0
+    let _ ← PqGetlength result 0 0
+    let _ ← PqNparams result
+    let refs ← pqResultRefcount result
+    assertEq "result accessor references" refs 1
 
 /-! ## 4. Parameterized queries (PqExecParams) -/
 
@@ -569,6 +607,7 @@ def main : IO UInt32 := do
     runEIOTest "Connect"           testConnect,
     runEIOTest "Connection info"   testConnectionInfo,
     runEIOTest "Simple exec"       testExec,
+    runEIOTest "PGresult accessor ownership" testResultAccessorBorrowing,
     runEIOTest "Exec params"       testExecParams,
     runEIOTest "Prepared stmts"    testPrepared,
     runEIOTest "NULL handling"     testNulls,

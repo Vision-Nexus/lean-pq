@@ -263,125 +263,125 @@ instance : ToString ExecStatus where
 /-- Returns the result status of the command.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQRESULTSTATUS -/
 @[extern "lean_pq_result_status"]
-opaque PqResultStatus (result : PGresult): EIO LeanPq.Error ExecStatus
+opaque PqResultStatus (result : @& PGresult): EIO LeanPq.Error ExecStatus
 
 /-- Converts the enumerated type returned by PQresultStatus into a string constant.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQRESSTATUS -/
 @[extern "lean_pq_res_status"]
-opaque PqResStatus (result : PGresult): EIO LeanPq.Error String
+opaque PqResStatus (result : @& PGresult): EIO LeanPq.Error String
 
 /-- Returns the error message associated with the command.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQRESULTERRORMESSAGE -/
 @[extern "lean_pq_result_error_message"]
-opaque PqResultErrorMessage (result : PGresult): EIO LeanPq.Error String
+opaque PqResultErrorMessage (result : @& PGresult): EIO LeanPq.Error String
 
 /-- Returns an individual field of an error report.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQRESULTERRORFIELD -/
 @[extern "lean_pq_result_error_field"]
-opaque PqResultErrorField (result : PGresult) (fieldcode : Int): EIO LeanPq.Error String
+opaque PqResultErrorField (result : @& PGresult) (fieldcode : Int): EIO LeanPq.Error String
 
 -- Retrieving Query Result Information
 /-- Returns the number of rows (tuples) in the query result.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQNTUPLES -/
 @[extern "lean_pq_ntuples"]
-opaque PqNtuples (result : PGresult): EIO LeanPq.Error Int
+opaque PqNtuples (result : @& PGresult): EIO LeanPq.Error Int
 
 /-- Returns the number of columns (fields) in each row of the query result.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQNFIELDS -/
 @[extern "lean_pq_nfields"]
-opaque PqNfields (result : PGresult): EIO LeanPq.Error Int
+opaque PqNfields (result : @& PGresult): EIO LeanPq.Error Int
 
 /-- Returns the column name associated with the given column number.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFNAME -/
 @[extern "lean_pq_fname"]
-opaque PqFname (result : PGresult) (fieldNum : Int): EIO LeanPq.Error String
+opaque PqFname (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error String
 
 /-- Returns the column number associated with the given column name.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFNUMBER -/
 @[extern "lean_pq_fnumber"]
-opaque PqFnumber (result : PGresult) (fieldName : String): EIO LeanPq.Error Int
+opaque PqFnumber (result : @& PGresult) (fieldName : String): EIO LeanPq.Error Int
 
 /-- Returns the OID of the table from which the given column was fetched.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFTABLE -/
 @[extern "lean_pq_ftable"]
-opaque PqFtable (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Oid
+opaque PqFtable (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Oid
 
 /-- Returns the column number (within its table) of the column making up the specified query result column.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFTABLECOL -/
 @[extern "lean_pq_ftablecol"]
-opaque PqFtablecol (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqFtablecol (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns the format code indicating the format of the given column.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFFORMAT -/
 @[extern "lean_pq_fformat"]
-opaque PqFformat (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqFformat (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns the data type associated with the given column number.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFTYPE -/
 @[extern "lean_pq_ftype"]
-opaque PqFtype (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Oid
+opaque PqFtype (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Oid
 
 /-- Returns the size in bytes of the type associated with the given column number.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFSIZE -/
 @[extern "lean_pq_fsize"]
-opaque PqFsize (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqFsize (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns the type modifier of the type associated with the given column number.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQFMOD -/
 @[extern "lean_pq_fmod"]
-opaque PqFmod (result : PGresult) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqFmod (result : @& PGresult) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns 1 if the PGresult contains binary tuple data, 0 if it contains text data.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQBINARYTUPLES -/
 @[extern "lean_pq_binary_tuples"]
-opaque PqBinaryTuples (result : PGresult): EIO LeanPq.Error Int
+opaque PqBinaryTuples (result : @& PGresult): EIO LeanPq.Error Int
 
 -- Retrieving Other Result Information
 /-- Returns the command status tag from the last SQL command executed.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQCMDSTATUS -/
 @[extern "lean_pq_cmd_status"]
-opaque PqCmdStatus (result : PGresult): EIO LeanPq.Error String
+opaque PqCmdStatus (result : @& PGresult): EIO LeanPq.Error String
 
 /-- Returns the number of rows affected by the SQL command.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQCMDTUPLES -/
 @[extern "lean_pq_cmd_tuples"]
-opaque PqCmdTuples (result : PGresult): EIO LeanPq.Error String
+opaque PqCmdTuples (result : @& PGresult): EIO LeanPq.Error String
 
 /-- Returns the OID of the inserted row, if the SQL command was an INSERT that inserted exactly one row into a table that has OIDs.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQOIDVALUE -/
 @[extern "lean_pq_oid_value"]
-opaque PqOidValue (result : PGresult): EIO LeanPq.Error Oid
+opaque PqOidValue (result : @& PGresult): EIO LeanPq.Error Oid
 
 /-- Returns a string with the OID of the inserted row, if the SQL command was an INSERT that inserted exactly one row into a table that has OIDs.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQOIDSTATUS -/
 @[extern "lean_pq_oid_status"]
-opaque PqOidStatus (result : PGresult): EIO LeanPq.Error String
+opaque PqOidStatus (result : @& PGresult): EIO LeanPq.Error String
 
 -- Retrieving Row Values
 /-- Returns a single field value of one row of a PGresult.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQGETVALUE -/
 @[extern "lean_pq_getvalue"]
-opaque PqGetvalue (result : PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error String
+opaque PqGetvalue (result : @& PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error String
 
 /-- Tests a field for a null value.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQGETISNULL -/
 @[extern "lean_pq_getisnull"]
-opaque PqGetisnull (result : PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqGetisnull (result : @& PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns the actual length of a field value in bytes.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQGETLENGTH -/
 @[extern "lean_pq_getlength"]
-opaque PqGetlength (result : PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error Int
+opaque PqGetlength (result : @& PGresult) (rowNum : Int) (fieldNum : Int): EIO LeanPq.Error Int
 
 /-- Returns the number of parameters of a prepared statement.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQNPARAMS -/
 @[extern "lean_pq_nparams"]
-opaque PqNparams (result : PGresult): EIO LeanPq.Error Int
+opaque PqNparams (result : @& PGresult): EIO LeanPq.Error Int
 
 /-- Returns the data type of the indicated statement parameter.
 Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPARAMTYPE -/
 @[extern "lean_pq_paramtype"]
-opaque PqParamtype (result : PGresult) (paramNum : Int): EIO LeanPq.Error Oid
+opaque PqParamtype (result : @& PGresult) (paramNum : Int): EIO LeanPq.Error Oid
 
 -- Escaping Strings for Inclusion in SQL Commands
 /-- Escapes a string for use as an SQL string literal on the given connection.

@@ -251,6 +251,10 @@ lean_obj_res pq_result_wrap_handle(Result *hresult) {
 static Result *pq_result_get_handle(lean_object *hresult) {
   return (Result *)lean_get_external_data(hresult);
 }
+/* Test-only: inspect the Lean object reference count after borrowed accessors run. */
+LEAN_EXPORT lean_obj_res lean_pq_test_result_refcount(b_lean_obj_arg res) {
+  return lean_io_result_mk_ok(lean_box((size_t)res->m_rc));
+}
 
 static void initialize_pq_result_external_class() {
   if (pq_result_external_class == NULL) {

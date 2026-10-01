@@ -75,37 +75,52 @@ static lean_object* pq_other_error(const char* msg) {
   return other_err;
 }
 
+/* Takes ownership even when libpq or allocation reports an error. */
+static lean_obj_res wrap_pg_connection(PGconn *pg_conn) {
+  ConnStatusType status = PQstatus(pg_conn);
+  if (status != CONNECTION_OK) {
+    PQfinish(pg_conn);
+    return lean_io_result_mk_error(pq_connection_error((uint32_t)status));
+  }
+  Connection *connection = (Connection *)malloc(sizeof *connection);
+  if (!connection) {
+    PQfinish(pg_conn);
+    return lean_io_result_mk_error(pq_other_error("Memory allocation for connection failed"));
+  }
+  connection->pg_conn = pg_conn;
+#if LEAN_PQ_DEBUG
+  fprintf(stderr, "Connection %p\n", pg_conn);
+#endif
+  return lean_io_result_mk_ok(pq_connection_wrap_handle(connection));
+}
+
 // PQconnectdbParams - Makes a new connection to the database server using parameter arrays
 // Documentation: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS
 LEAN_EXPORT lean_obj_res lean_pq_connect_db_params(b_lean_obj_arg keywords, b_lean_obj_arg values, b_lean_obj_arg expand_dbname) {
   // Initialize the external class for connections
   initialize_pq_connection_external_class();
   size_t size = lean_array_size(keywords);
-  const char **keywords_cstr = (const char **)malloc(size * sizeof(const char *));
-  const char **values_cstr = (const char **)malloc(size * sizeof(const char *));
-  for (size_t i = 0; i < size; i++) {
-    keywords_cstr[i] = lean_string_cstr(lean_array_uget(keywords, i));
+  if (lean_array_size(values) != size)
+    return lean_io_result_mk_error(pq_other_error("Connection keyword/value lengths differ"));
+  /* libpq requires a NULL-terminated keyword array, including for zero options. */
+  const char **keywords_cstr = (const char **)calloc(size + 1, sizeof(const char *));
+  const char **values_cstr = (const char **)calloc(size + 1, sizeof(const char *));
+  if (!keywords_cstr || !values_cstr) {
+    free(keywords_cstr);
+    free(values_cstr);
+    return lean_io_result_mk_error(pq_other_error("Memory allocation for connection parameters failed"));
   }
   for (size_t i = 0; i < size; i++) {
-    values_cstr[i] = lean_string_cstr(lean_array_uget(values, i));
+    keywords_cstr[i] = lean_string_cstr(lean_array_get_core(keywords, i));
+  }
+  for (size_t i = 0; i < size; i++) {
+    values_cstr[i] = lean_string_cstr(lean_array_get_core(values, i));
   }
   int expand_dbname_int = lean_unbox(expand_dbname);
   PGconn *pg_conn = PQconnectdbParams(keywords_cstr, values_cstr, expand_dbname_int); // Create the libpq handle
   free(keywords_cstr);
   free(values_cstr);
-  ConnStatusType status = PQstatus(pg_conn);
-  // If the connection is not successful, return an error
-  if (status != CONNECTION_OK)
-    return lean_io_result_mk_error(pq_connection_error((uint32_t)status));
-  Connection *connection = (Connection *)malloc(sizeof *connection); // Allocate our wrapper
-  if (!connection)
-    return lean_io_result_mk_error(pq_other_error("Memory allocation for connection failed"));
-  // Initialize all fields to safe defaults
-  connection->pg_conn = pg_conn;
-#if LEAN_PQ_DEBUG
-  fprintf(stderr, "Connection %p\n", pg_conn);
-#endif
-  return lean_io_result_mk_ok(pq_connection_wrap_handle(connection));
+  return wrap_pg_connection(pg_conn);
 }
 
 // PQconnectdb - Makes a new connection to the database server using a connection string
@@ -115,19 +130,7 @@ LEAN_EXPORT lean_obj_res lean_pq_connect_db(b_lean_obj_arg conninfo) {
   initialize_pq_connection_external_class();
   const char *conninfo_cstr = lean_string_cstr(conninfo); // Convert Lean string to C string
   PGconn *pg_conn = PQconnectdb(conninfo_cstr); // Create the libpq handle
-  ConnStatusType status = PQstatus(pg_conn);
-  // If the connection is not successful, return an error
-  if (status != CONNECTION_OK)
-    return lean_io_result_mk_error(pq_connection_error((uint32_t)status));
-  Connection *connection = (Connection *)malloc(sizeof *connection); // Allocate our wrapper
-  if (!connection)
-    return lean_io_result_mk_error(pq_other_error("Memory allocation for connection failed"));
-  // Initialize all fields to safe defaults
-  connection->pg_conn = pg_conn;
-#if LEAN_PQ_DEBUG
-  fprintf(stderr, "Connection %p\n", pg_conn);
-#endif
-  return lean_io_result_mk_ok(pq_connection_wrap_handle(connection));
+  return wrap_pg_connection(pg_conn);
 }
 
 // PQreset - Resets the communication channel with the server
@@ -256,6 +259,15 @@ LEAN_EXPORT lean_obj_res lean_pq_test_result_refcount(b_lean_obj_arg res) {
   return lean_io_result_mk_ok(lean_box((size_t)res->m_rc));
 }
 
+LEAN_EXPORT lean_obj_res lean_pq_test_object_refcount(b_lean_obj_arg obj) {
+  return lean_io_result_mk_ok(lean_box(lean_is_scalar(obj) ? 0 : (size_t)obj->m_rc));
+}
+
+LEAN_EXPORT lean_obj_res lean_pq_test_element_refcount(b_lean_obj_arg array, size_t index) {
+  lean_object *obj = lean_array_get_core(array, index);
+  return lean_io_result_mk_ok(lean_box(lean_is_scalar(obj) ? 0 : (size_t)obj->m_rc));
+}
+
 static void initialize_pq_result_external_class() {
   if (pq_result_external_class == NULL) {
     pq_result_external_class = lean_register_external_class(
@@ -268,8 +280,10 @@ static void initialize_pq_result_external_class() {
 static lean_obj_res wrap_pg_result(PGresult *pg_result) {
   initialize_pq_result_external_class();
   Result *result = (Result *)malloc(sizeof *result);
-  if (!result)
+  if (!result) {
+    PQclear(pg_result);
     return lean_io_result_mk_error(pq_other_error("Memory allocation for result failed"));
+  }
   result->pg_result = pg_result;
 #if LEAN_PQ_DEBUG
   fprintf(stderr, "Result %p\n", pg_result);
@@ -289,7 +303,8 @@ LEAN_EXPORT lean_obj_res lean_pq_exec(b_lean_obj_arg conn, b_lean_obj_arg cmd) {
 // PQexecParams - Submits a command to the server and waits for the result, with the ability to pass parameters separately
 // Documentation: https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQEXECPARAMS
 //
-// Phase 1a: Fixed array marshalling — uses lean_array_uget iteration instead of broken lean_unbox casts
+// Array elements are borrowed for this synchronous call; the input arrays keep them alive.
+// lean_array_uget would increment every element without releasing that reference.
 LEAN_EXPORT lean_obj_res lean_pq_exec_params(
   b_lean_obj_arg conn,
   b_lean_obj_arg cmd,
@@ -311,7 +326,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_params(
     if (!paramTypes_c)
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramTypes failed"));
     for (int i = 0; i < nParams_int; i++) {
-      paramTypes_c[i] = (Oid)lean_unbox_uint32(lean_array_uget(paramTypes, (size_t)i));
+      paramTypes_c[i] = (Oid)lean_unbox_uint32(lean_array_get_core(paramTypes, (size_t)i));
     }
   }
 
@@ -324,7 +339,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_params(
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramValues failed"));
     }
     for (int i = 0; i < nParams_int; i++) {
-      paramValues_c[i] = lean_string_cstr(lean_array_uget(paramValues, (size_t)i));
+      paramValues_c[i] = lean_string_cstr(lean_array_get_core(paramValues, (size_t)i));
     }
   }
 
@@ -337,7 +352,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_params(
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramLengths failed"));
     }
     for (int i = 0; i < nParams_int; i++) {
-      paramLengths_c[i] = (int)lean_unbox(lean_array_uget(paramLengths, (size_t)i));
+      paramLengths_c[i] = (int)lean_unbox(lean_array_get_core(paramLengths, (size_t)i));
     }
   }
 
@@ -350,7 +365,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_params(
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramFormats failed"));
     }
     for (int i = 0; i < nParams_int; i++) {
-      paramFormats_c[i] = (int)lean_unbox(lean_array_uget(paramFormats, (size_t)i));
+      paramFormats_c[i] = (int)lean_unbox(lean_array_get_core(paramFormats, (size_t)i));
     }
   }
 
@@ -382,7 +397,7 @@ LEAN_EXPORT lean_obj_res lean_pq_prepare(b_lean_obj_arg conn, b_lean_obj_arg stm
     if (!paramTypes_c)
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramTypes failed"));
     for (int i = 0; i < nParams_int; i++) {
-      paramTypes_c[i] = (Oid)lean_unbox_uint32(lean_array_uget(paramTypes, (size_t)i));
+      paramTypes_c[i] = (Oid)lean_unbox_uint32(lean_array_get_core(paramTypes, (size_t)i));
     }
   }
 
@@ -409,7 +424,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_prepared(b_lean_obj_arg conn, b_lean_obj_a
     if (!paramValues_c)
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramValues failed"));
     for (int i = 0; i < nParams_int; i++) {
-      paramValues_c[i] = lean_string_cstr(lean_array_uget(paramValues, (size_t)i));
+      paramValues_c[i] = lean_string_cstr(lean_array_get_core(paramValues, (size_t)i));
     }
   }
 
@@ -422,7 +437,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_prepared(b_lean_obj_arg conn, b_lean_obj_a
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramLengths failed"));
     }
     for (int i = 0; i < nParams_int; i++) {
-      paramLengths_c[i] = (int)lean_unbox(lean_array_uget(paramLengths, (size_t)i));
+      paramLengths_c[i] = (int)lean_unbox(lean_array_get_core(paramLengths, (size_t)i));
     }
   }
 
@@ -435,7 +450,7 @@ LEAN_EXPORT lean_obj_res lean_pq_exec_prepared(b_lean_obj_arg conn, b_lean_obj_a
       return lean_io_result_mk_error(pq_other_error("Memory allocation for paramFormats failed"));
     }
     for (int i = 0; i < nParams_int; i++) {
-      paramFormats_c[i] = (int)lean_unbox(lean_array_uget(paramFormats, (size_t)i));
+      paramFormats_c[i] = (int)lean_unbox(lean_array_get_core(paramFormats, (size_t)i));
     }
   }
 

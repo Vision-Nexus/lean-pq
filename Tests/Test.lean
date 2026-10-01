@@ -8,13 +8,15 @@ import Tests.DataType
 import Tests.Schema
 import Tests.Monad
 import Tests.Async
+import Tests.Ownership
 
 open LeanPq
 open Extern
 
 @[extern "lean_pq_test_result_refcount"]
 private opaque pqResultRefcount (result : @& PGresult) : EIO LeanPq.Error Nat
-def conninfo := "host=localhost port=5432 user=postgres password=test dbname=postgres"
+-- libpq honors PGPORT; tests can use an isolated local instance without touching port 5432.
+def conninfo := "host=localhost user=postgres password=test dbname=postgres"
 
 /-! ## Helper: assert with descriptive failure -/
 
@@ -44,7 +46,7 @@ def testConnectionInfo : EIO LeanPq.Error Unit := do
   let host ← PqHost conn
   assertTrue "host is set" (!host.isEmpty)
   let port ← PqPort conn
-  assertEq "port" port "5432"
+  assertEq "port" port ((← IO.getEnv "PGPORT").getD "5432")
   let _proto ← PqProtocolVersion conn
   let _ver ← PqServerVersion conn
   let txStatus ← PqTransactionStatus conn
@@ -552,7 +554,7 @@ def pgIsReady : IO Bool := do
   try
     let result ← IO.Process.output {
       cmd := "pg_isready"
-      args := #["-h", "localhost", "-p", "5432", "-U", "postgres"]
+      args := #["-h", "localhost", "-p", (← IO.getEnv "PGPORT").getD "5432", "-U", "postgres"]
     }
     return result.exitCode == 0
   catch _ => return false
@@ -608,6 +610,10 @@ def main : IO UInt32 := do
     runEIOTest "Connection info"   testConnectionInfo,
     runEIOTest "Simple exec"       testExec,
     runEIOTest "PGresult accessor ownership" testResultAccessorBorrowing,
+    runEIOTest "Connection input ownership" (Tests.Ownership.connection conninfo),
+    runEIOTest "Connection parameter ownership" (Tests.Ownership.connectionParameters conninfo),
+    runEIOTest "Parameter input ownership" (Tests.Ownership.parameters conninfo),
+    runEIOTest "Prepared input ownership" (Tests.Ownership.prepared conninfo),
     runEIOTest "Exec params"       testExecParams,
     runEIOTest "Prepared stmts"    testPrepared,
     runEIOTest "NULL handling"     testNulls,
